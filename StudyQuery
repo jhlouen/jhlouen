@@ -1,0 +1,166 @@
+table duration=1m ts_raw
+
+|# search line=="*History]*"
+|# rex field=line "\[.*\] \[\s*(?<LEVEL>.*)\] \[\s+(?<THREAD>.*)\] \[\S+\.(?<OPERATION_NAME>\S+\.)(?<method>\S+)\] - \[(?<history>.*)\]" 
+|# eval history = upper(history), OPERATION_NAME = concat(OPERATION_NAME, method) 
+|# rename _host as PROCESS , history as TEXT 
+ |# eval history = substr(TEXT, indexof(TEXT, "HISTORY{")+8, indexof(TEXT, "},")) 
+ |# eval history2 = substr(TEXT, indexof(TEXT, "},")+3, len(TEXT)) 
+ |# rex field=history "MESSAGENAME=(?<MESSAGENAME>\w+\-\w+)" 
+ |# rex field=history "CARRIERNAME=(?<CARRIER>\w+)" 
+ |# rex field=history2 "TRANSACTIONID=(?<TRANSACTIONID>\w+)" 
+ |# rex field=history2 "MACHINENAME=(?<MACHINENAME>\w+)" 
+ |# rex field=history2 "UNITNAME=(?<UNITNAME>\w+)" 
+ |# fields - history, history2, line
+
+
+table duration=1m ts_raw
+|# ts_raw 테이블의 1분 동안의 값을 가져옴
+
+| search line=="*History]*"
+|# *History]가  포함된 라인을 검색
+
+| rex field=line "\[.*\] \[\s*(?<LEVEL>.*)\] \[\s+(?<THREAD>.*)\] \[\S+\.(?<OPERATION_NAME>\S+\.)(?<method>\S+)\] - \[(?<history>.*)\]" 
+|# 정규표현식을 사용하여 각 칼럼을 ?<> 안에 있는 값으로 나눠서 칼럼을 추가하고 line에 있는 데이터를 추출하여 각 칼럼으로 분배
+
+|# eval history = upper(history), OPERATION_NAME = concat(OPERATION_NAME, method) 
+|# upper를 사용하여 history에 있는 값을을 모두 대문자로 바꾸고 OPERATION_NAME에 method칼럼의 값을 합쳐서 출력
+
+|# rename _host as PROCESS , history as TEXT 
+|# _host칼럼의 이름을 PROCESS로 바꾸고 history칼럼의 이름을 TEXT로 바꿈
+
+|# eval history = substr(TEXT, indexof(TEXT, "HISTORY{")+8, indexof(TEXT, "},")) 
+|# history라는 칼럼에 substr을 사용하여 TEXT필드안에  HISTORY{로 시작하고 }로 닫히는 값을 저장
+
+|# eval history2 = substr(TEXT, indexof(TEXT, "},")+3, len(TEXT)) 
+|# history2라는 칼럼에 },부터 시작해 TEXT의 길이만큼 가져와서 칼럼에 저장
+
+|# rex field=history "MESSAGENAME=(?<MESSAGENAME>\w+\-\w+)" 
+|# history 칼럼에서 MESSAGENAME=뒤에 있는 값을 정규표현식을 사용하여 칼럼으로 추출
+
+|# rex field=history "CARRIERNAME=(?<CARRIER>\w+)" 
+|# history 칼럼에서 CARRIERNAME=뒤에 있는 값을 정규표현식을 사용하여 칼럼으로 추출
+
+|# rex field=history2 "TRANSACTIONID=(?<TRANSACTIONID>\w+)" 
+|# history2 칼럼에서 TRANSACTIONID=뒤에 있는 값을 정규표현식을 사용하여 칼럼으로 추출
+
+|# rex field=history2 "MACHINENAME=(?<MACHINENAME>\w+)" 
+|# history2 칼럼에서 MACHINENAME=뒤에 있는 값을 정규표현식을 사용하여 칼럼으로 추출
+
+|# rex field=history2 "UNITNAME=(?<UNITNAME>\w+)" 
+|# history2 칼럼에서 UNITNAME=뒤에 있는 값을 정규표현식을 사용하여 칼럼으로 추출
+
+|# fields - history, history2, line
+|# 출력화면에서 history, history2, line 필드를 제외시키고 출력
+
+
+
+textfile ./regex_test.txt
+| rex field=line "\[(?<TIME>.*)\] \[\s*(?<LEVEL>.*)\] \[\s+(?<THREAD>.*)\] \[(?<MESSAGE>.*)\] \- \[(?<TEXT>.*)\]"
+| rex field=TEXT "(?i)messagename=(?<MESSAGENAME>\w+\-*\w*)"
+| rex field=TEXT "(?i)carriername=(?<CARRIERNAME>\w+)"
+| rex field=TEXT "(?i)machinename=(?<MACHINENAME>\w+)"
+| rex field=TEXT "(?i)unitname=(?<UNITNAME>\w+\_\w+)"
+| fields TIME, LEVEL, THREAD, MESSAGE MESSAGENAME, CARRIERNAME, MACHINENAME, UNITNAME, TEXT
+
+
+
+textfile ./regex_test.txt | fields - _file 
+// 루트경로로부터 위치한 텍스트파일을 불러와서 로드시키고, file의 이름이나오는 필드를 제거하고 출력해준다
+| rex field=line "\[(?<TIME>\d{4}-\d{2}-\d{2}\s*\d+:\d+:\d+,\d+)\]\s*\[\s*(?<LEVEL>\w+)\]\s*\[\s*(?<TH>[^\]]+)\]\s*\[(?<MESSAGE>\S+)\][^\[]+\[(?<TEXT>.*)\]" 
+//정규식을 사용하여 로드시킨 텍스트파일의 line칼럼에 있는 데이터를 맨처음 []안에있는 데이터를 TIME필드로 추출(날짜데이터)동일한 방식으로 LEVEL,TH,MESSAGE를 출력하고 나머지를 TEXT필드로 추출
+| fields - line 
+//출력되는 필드중 line필드를 제외
+| eval sub = indexof(TEXT, "messageName=") 
+//eval을 사용해 sub필드에 text필드에서 messagename=의 시작위치값을 추출
+| eval sub = if(sub < 0, 0, sub) 
+// 조건함수 if를 사용하여 sub 가 0보다 작을시 0으로 값을 바꾸고 0보다 클시에는 sub그대로 놔두는 식
+| eval TEXT2 = substr(TEXT, sub, len(TEXT)) 
+// substr을 사용해 TEXT필드에서 sub의 값인 messageName=부터 TEXT의 길이만큼 잘라서 TEXT2 필드에 저장
+| parsekv field=TEXT2 overlay=t pairdelim="," 
+// TEXT2필드에서 파싱된 빌드를 덮어쓰고 필드 구분자를 ,로 정합니다 
+| rex field=TEXT "previousUnit\{port\{(?<TEXT3>[^\}]+)" 
+// TEXT필드에서 previousUnit\{port\{여기서 부터 텍스트를 추출해서 TEXT3 필드에 입력
+| parsekv field=TEXT3 overlay=t pairdelim="," 
+// TEXT3필드에서 파싱된 빌드를 덮어쓰고 필드 구분자를 ,로 정합니다 
+| fields - TEXT2, TEXT3, unit{4ABL3301A_IN1F_G3536_OP1} is valid
+//출력되는 필드에서 TEXT2, TEXT3, unit{4ABL3301A_IN1F_G3536_OP1} is valid를 제외시키고 출력
+
+textfile ./regex_test.txt | fields - _file  
+| rex field=line "\[(?<TIME>\d{4}-\d{2}-\d{2}\s*\d+:\d+:\d+,\d+)\]\s*\[\s*(?<LEVEL>\w+)\]\s*\[\s*(?<TH>[^\]]+)\]\s*\[(?<MESSAGE>\S+)\][^\[]+\[(?<TEXT>.*)\]"  
+| rex field=TEXT "(?i)messagename=(?<MESSAGENAME>\w+\-*\w*)"  
+| rex field=TEXT "(?i)carriername=(?<CARRIERNAME>\w+)"  
+| rex field=TEXT "(?i)machinename=(?<MACHINENAME>\w+\-*\w*)"  
+| rex field=TEXT "(?i)unitname=(?<UNITNAME>\w+\-*\w*)"  
+| rex field=TEXT "(?i)messagename=(?<MESSAGENAME>\w+\-*\w*)"
+
+
+정규표현식 https://namu.wiki/w/%EC%A0%95%EA%B7%9C%ED%91%9C%ED%98%84%EC%8B%9D
+http://blog.daum.net/creazier/15309380
+================================================================
+기본 메타 문자
+	. : 모든 문자와 일치( 한 문자)
+	| : 왼쪽 혹은 오른쪽과 일치
+	[^] : 문자 집합 구성원 중 하나와 일치
+	- : 문자 집합 구성원을 제외하고 일치
+	\ : 다음에 오는 문자를 이스케이프(사용)
+
+수랑자
+	* : 문자가 없는 경우나 하나 이상 연속하는 문자 찾기
+	*? : 게으른 * 문자
+	+ : 문자 하나 이상 찾기
+	+? : 게으른 + 문자
+	? : 문자가 없거나 하나인 문자 찾기
+	{n} : 정확히 요소와 n번 일치
+	{m, n} : 요소와 m에서 n번 일치
+	{n, } : 요소와 n번 이상 일치
+	{n, }? : 게으른 {n, }
+
+위치 지정
+	^ : 문자열의 시작과 일치
+	\A : 문자열의 시작과 일치
+	$ : 문자열의 끝과 일치
+	\Z : 문자열의 끝과 일치
+	\< : 단어의 시작과 일치
+	\> : 단어의 끝과 일치
+	\b : 단어의 경계와 일치
+	\B : \b와 반대로 일치
+
+특수한 문자
+	[\b] : 역스페이스
+	\c : 제어문자와 일치
+	\d : 모든 숫자와 일치
+	\D : \d와 반대
+	\f : 페이지 넘기기(form feed)
+	\n : 중바꿈
+	\r : 캐리지 리턴
+	\s : 공백 문자와 일치
+	\S : \s와 반대로 일치
+	\t : 탭
+	\v : 수직 탭
+	\w : 영숫자 문자나 밑줄과 일치
+	\W : \w와 반대로 일치
+	\x : 16진수 숫자와 일치
+	\0 : 8진수 숫자와 일치
+
+
+역참조와 전후방 탐색
+	() : 하위 표현식 정의
+	\1 : 첫번째 일치한 하위표현식, 두번째로 일치한 하위 표현식은 \2로 표기하는 방식
+	?= : 전방탐색
+	?<= : 후방탐색
+	?! : 부정형 전방탐색
+	?<! : 부정형 후방탐색
+	?(backreference)true : 조건지정
+	?(backreference)true|false : else 표현식 조건 지정
+
+대소문자 변환
+	\l : 다음에 오는 글자를 소문자로 변환
+	\u : 다음에 오는 글자를 대문자로 변환
+	\L : \E를 만날 때까지 모든 문자를 소문자로 변환
+	\U : \E를 만날 때까지 모든 문자를 대문자로 변환
+	\E : \L 혹은 \U 변환을 끝냄
+
+변경자
+	(?m) : 다중행 모드
+	(?i) : 대소문자를 구분하지 않음
